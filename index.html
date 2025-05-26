@@ -90,11 +90,43 @@
     </div>
 </div>
 <div class="image-modal" id="imageModal">
-  <span class="modal-close" id="modalClose"><img src="https://brandonsmithphoto.s3.us-west-1.amazonaws.com/manonstilts/close.svg"></span>
+  <span class="modal-close" id="modalClose"><img src="https://brandonsmithphoto.s3.us-west-1.amazonaws.com/close.svg"></span>
   <img id="modalImg" src="" alt="Full image view">
 </div>
 
   <script>
+document.addEventListener("DOMContentLoaded", function () {
+  const breakpoints = [1080, 1440, 2000];
+
+  const getBestSize = (viewportWidth) => {
+    if (viewportWidth <= 1080) return 1080;
+    if (viewportWidth <= 1440) return 1440;
+    return 2000;
+  };
+
+  const selectedSize = getBestSize(window.innerWidth);
+
+  document.querySelectorAll(".justified-gallery a img").forEach((img) => {
+    const originalSrc = img.getAttribute("src");
+    const alt = img.getAttribute("alt") || "";
+    const match = originalSrc.match(/(.+\/)([^\/]+)-\d+px\.jpg$/);
+
+    if (!match) return;
+
+    const [_, baseUrl, fileBase] = match;
+    const bestSrc = `${baseUrl}${fileBase}-${selectedSize}px.jpg`;
+
+    const staticImg = document.createElement("img");
+    staticImg.setAttribute("src", bestSrc);
+    staticImg.setAttribute("alt", alt);
+    staticImg.setAttribute("loading", "lazy");
+
+    img.replaceWith(staticImg);
+  });
+});
+
+  // Step 2: Now initialize Justified Gallery 
+  
     $(document).ready(function () {
       $(".justified-gallery").justifiedGallery({
         rowHeight: 300,
@@ -131,6 +163,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   };
 });
+
 </script>
 </body>
 </html>
