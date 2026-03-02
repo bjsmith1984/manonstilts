@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VR Music Visualizer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;overflow:hidden;font-family:'Segoe UI',sans-serif;color:#fff}
+#canvas{display:block}
+
+/* ── Upload Screen ── */
+#ui{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.9);z-index:20;transition:opacity .5s}
+#ui.hidden{opacity:0;pointer-events:none}
+#ui h1{font-size:2.6rem;font-weight:900;background:linear-gradient(135deg,#f0f,#0ff,#ff0);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.3rem;text-align:center}
+#ui p{color:#aaa;margin-bottom:2rem;font-size:.95rem}
+.btn-row{display:flex;gap:.8rem;flex-wrap:wrap;justify-content:center;margin-bottom:1rem}
+.btn{padding:.7rem 1.6rem;border-radius:50px;border:none;cursor:pointer;font-size:.95rem;font-weight:700;transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:scale(1.06);box-shadow:0 0 20px rgba(255,255,255,.25)}
+.btn-primary{background:linear-gradient(135deg,#f0f,#0ff);color:#000}
+.btn-secondary{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)}
+.spotify-row{display:flex;gap:.5rem;margin-top:.5rem;width:min(480px,90vw)}
+.spotify-row input{flex:1;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:50px;padding:.6rem 1.2rem;color:#fff;font-size:.9rem;outline:none}
+.spotify-row input:focus{border-color:#1db954}
+.spotify-row input::placeholder{color:#666}
+.btn-spotify{background:#1db954;color:#000;white-space:nowrap}
+
+/* ── HUD ── */
+#hud{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);z-index:15;display:flex;flex-direction:column;align-items:center;gap:.6rem}
+#hud.hidden{display:none}
+#hud-bar{display:flex;gap:.6rem;align-items:center;background:rgba(0,0,0,.55);padding:.5rem 1rem;border-radius:50px;backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.1)}
+#song-name{font-size:.8rem;color:#ccc;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud-btn{background:rgba(255,255,255,.12);border:none;color:#fff;border-radius:50px;padding:.35rem .9rem;cursor:pointer;font-size:.75rem;transition:background .15s}
+.hud-btn:hover{background:rgba(255,255,255,.25)}
+.hud-btn.active{background:rgba(255,255,255,.3);color:#0ff}
+#vr-btn{background:linear-gradient(135deg,#f0f,#0ff);color:#000;font-weight:700}
+
+/* ── Panel rows ── */
+#preset-row,#env-row{display:flex;gap:.5rem;background:rgba(0,0,0,.5);padding:.4rem .8rem;border-radius:50px;backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08)}
+.panel-btn{background:transparent;border:1px solid rgba(255,255,255,.15);color:#aaa;border-radius:50px;padding:.3rem .8rem;cursor:pointer;font-size:.72rem;transition:all .15s}
+.panel-btn:hover{color:#fff;border-color:rgba(255,255,255,.4)}
+.panel-btn.active{color:#000;background:linear-gradient(135deg,#f0f,#0ff);border-color:transparent}
+
+/* ── BPM badge ── */
+#bpm-badge{position:fixed;top:1rem;right:1rem;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:.4rem .8rem;font-size:.75rem;color:#0ff;backdrop-filter:blur(8px);z-index:15;display:none}
+
+/* ── Beat flash ── */
+#beat-flash{position:fixed;inset:0;pointer-events:none;z-index:1;opacity:0;background:radial-gradient(ellipse at center,rgba(255,255,255,.1) 0%,transparent 70%)}
+
+/* ── Spotify modal ── */
+#spotify-modal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:30;display:flex;align-items:center;justify-content:center;display:none}
+#spotify-box{background:#111;border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:2rem;max-width:480px;width:90%;text-align:center}
+#spotify-box h2{margin-bottom:.5rem;color:#1db954}
+#spotify-box p{color:#aaa;font-size:.85rem;line-height:1.6;margin-bottom:1rem}
+#spotify-box code{background:rgba(255,255,255,.07);padding:.15rem .4rem;border-radius:4px;font-size:.8rem;color:#0ff}
+#spotify-box .close-btn{margin-top:1rem}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="beat-flash"></div>
+<div id="bpm-badge">♩ <span id="bpm-val">--</span> BPM</div>
+
+<!-- Upload screen -->
+<div id="ui">
+  <h1>🎵 VR Visualizer</h1>
+  <p>Upload a song or paste a Spotify link to enter the experience</p>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Upload Song</button>
+    <button class="btn btn-secondary" onclick="startDemo()">Try Demo</button>
+    <button class="btn btn-secondary" onclick="showSpotifyInfo()">Spotify Setup</button>
+  </div>
+  <div class="spotify-row">
+    <input id="spotify-url-main" type="text" placeholder="Paste Spotify track link…" />
+    <button class="btn btn-spotify" onclick="handleSpotifyLink('spotify-url-main')">Play</button>
+  </div>
+  <input type="file" id="file-input" accept="audio/*" onchange="loadFile(event)" style="display:none">
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="preset-row">
+    <span style="font-size:.7rem;color:#666;margin-right:.3rem">PRESET</span>
+    <button class="panel-btn active" onclick="setPreset('milkdrop',this)">Milkdrop</button>
+    <button class="panel-btn" onclick="setPreset('cosmic',this)">Cosmic Storm</button>
+    <button class="panel-btn" onclick="setPreset('acid',this)">Acid Rave</button>
+    <button class="panel-btn" onclick="setPreset('minimal',this)">Minimal Pulse</button>
+  </div>
+  <div id="env-row">
+    <span style="font-size:.7rem;color:#666;margin-right:.3rem">ENV</span>
+    <button class="panel-btn active" onclick="setEnv('space',this)">Deep Space</button>
+    <button class="panel-btn" onclick="setEnv('neon',this)">Neon City</button>
+    <button class="panel-btn" onclick="setEnv('ocean',this)">Underwater</button>
+  </div>
+  <div id="hud-bar">
+    <span id="song-name">—</span>
+    <button class="hud-btn" onclick="document.getElementById('file-input2').click()">Change Song</button>
+    <button class="hud-btn" onclick="showSpotifyHud()">Spotify</button>
+    <button class="hud-btn" id="gyro-btn" onclick="enableGyro()">🔄 Gyro</button>
+    <button class="hud-btn" id="vr-btn" onclick="enterVR()">Enter VR</button>
+  </div>
+  <input type="file" id="file-input2" accept="audio/*" onchange="loadFile(event)" style="display:none">
+</div>
+
+<!-- Spotify info modal -->
+<div id="spotify-modal">
+  <div id="spotify-box">
+    <h2>🎧 Spotify Integration</h2>
+    <p>Due to Spotify's API terms, direct audio streaming requires a <strong>Spotify Premium</strong> account and OAuth authentication. To enable full integration:</p>
+    <p>1. Create an app at <code>developer.spotify.com</code><br>
+       2. Add your <code>Client ID</code> to this app's config<br>
+       3. Set redirect URI to this page's URL<br>
+       4. Users log in via Spotify OAuth — the <strong>Web Playback SDK</strong> then streams audio directly into the visualizer</p>
+    <p style="color:#888;font-size:.8rem">In the meantime, paste a Spotify track URL below and we'll open it in Spotify while the visualizer runs in demo mode.</p>
+    <div class="spotify-row" style="margin:.8rem auto 0;width:100%">
+      <input id="spotify-url-modal" type="text" placeholder="spotify.com/track/…" />
+      <button class="btn btn-spotify" onclick="handleSpotifyLink('spotify-url-modal')">Open</button>
+    </div>
+    <button class="btn btn-secondary close-btn" onclick="closeSpotifyModal()">Close</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════
+//  RENDERER
+// ═══════════════════════════════════════════════════
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled = true;
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+
+window.addEventListener('resize',()=>{
+  renderer.setSize(innerWidth,innerHeight);
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// ═══════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════
+let currentPreset = 'milkdrop';
+let currentEnv    = 'space';
+let t = 0;
+
+// ═══════════════════════════════════════════════════
+//  AUDIO ENGINE
+// ═══════════════════════════════════════════════════
+let audioCtx, analyser, source, dataArray, freqArray;
+let isPlaying = false;
+let demoOsc, demoGain, demoInterval;
+const FFT = 2048;
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = FFT;
+  analyser.smoothingTimeConstant = 0.82;
+  analyser.connect(audioCtx.destination);
+  dataArray  = new Uint8Array(analyser.frequencyBinCount);
+  freqArray  = new Uint8Array(analyser.frequencyBinCount);
+}
+
+function stopAll(){
+  if(source){ try{source.stop();}catch(e){} source=null; }
+  if(demoOsc){ try{demoOsc.stop();}catch(e){} demoOsc=null; }
+  if(demoInterval){ clearInterval(demoInterval); demoInterval=null; }
+  isPlaying = false;
+}
+
+function loadFile(e){
+  const file = e.target.files[0]; if(!file) return;
+  stopAll(); initAudio();
+  document.getElementById('song-name').textContent = file.name.replace(/\.[^/.]+$/,'');
+  const reader = new FileReader();
+  reader.onload = ev => {
+    audioCtx.decodeAudioData(ev.target.result, buf => {
+      source = audioCtx.createBufferSource();
+      source.buffer = buf;
+      source.connect(analyser);
+      source.loop = true;
+      source.start(0);
+      isPlaying = true;
+      bpmDetector.reset();
+    });
+  };
+  reader.readAsArrayBuffer(file);
+  showExperience();
+}
+
+function startDemo(){
+  stopAll(); initAudio();
+  document.getElementById('song-name').textContent = 'Demo Tone';
+  demoGain = audioCtx.createGain(); demoGain.gain.value=0.3; demoGain.connect(analyser);
+  demoOsc  = audioCtx.createOscillator(); demoOsc.type='sawtooth'; demoOsc.frequency.value=110;
+  demoOsc.connect(demoGain); demoOsc.start();
+  let beat=false, dt=0;
+  demoInterval = setInterval(()=>{
+    dt+=0.5;
+    demoOsc.frequency.setTargetAtTime(110+Math.sin(dt*.3)*60, audioCtx.currentTime,.1);
+    demoGain.gain.setTargetAtTime(beat?.5:.15, audioCtx.currentTime,.05);
+    beat=!beat;
+  },500);
+  isPlaying=true;
+  showExperience();
+}
+
+function handleSpotifyLink(inputId){
+  const url = document.getElementById(inputId).value.trim();
+  if(!url){ alert('Please paste a Spotify link first.'); return; }
+  window.open(url,'_blank');
+  startDemo();
+  document.getElementById('song-name').textContent = 'Spotify (external)';
+  closeSpotifyModal();
+  showExperience();
+}
+
+function showSpotifyInfo(){ document.getElementById('spotify-modal').style.display='flex'; }
+function showSpotifyHud(){  document.getElementById('spotify-modal').style.display='flex'; }
+function closeSpotifyModal(){ document.getElementById('spotify-modal').style.display='none'; }
+function showExperience(){
+  document.getElementById('ui').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  document.getElementById('bpm-badge').style.display='block';
+}
+
+// ═══════════════════════════════════════════════════
+//  BPM DETECTOR
+// ═══════════════════════════════════════════════════
+const bpmDetector = {
+  beats:[],
+  lastBeat:0,
+  bpm:0,
+  reset(){ this.beats=[]; this.lastBeat=0; this.bpm=0; document.getElementById('bpm-val').textContent='--'; },
+  onBeat(){
+    const now = performance.now();
+    if(this.lastBeat && now-this.lastBeat > 200 && now-this.lastBeat < 2000){
+      this.beats.push(now-this.lastBeat);
+      if(this.beats.length > 24) this.beats.shift();
+      if(this.beats.length >= 4){
+        const avg = this.beats.reduce((a,b)=>a+b,0)/this.beats.length;
+        this.bpm = Math.round(60000/avg);
+        document.getElementById('bpm-val').textContent = this.bpm;
+      }
+    }
+    this.lastBeat = now;
+  }
+};
+
+// Beat grid pulse
+let beatGridPhase = 0;
+let beatInterval  = 0.5; // seconds between beats (updated from BPM)
+let lastBeatTime  = 0;
+function updateBeatGrid(){
+  if(bpmDetector.bpm > 0){
+    beatInterval = 60/bpmDetector.bpm;
+  }
+  const now = t;
+  if(now - lastBeatTime >= beatInterval){
+    lastBeatTime = now;
+    beatGridPhase = 1;
+  }
+  beatGridPhase *= 0.88;
+}
+
+// ═══════════════════════════════════════════════════
+//  PRESETS
+// ═══════════════════════════════════════════════════
+const PRESETS = {
+  milkdrop:{ barRadius:8,  barCount:128, icoWire:true,  particleSize:.08, tunnelSpeed:.05, colorSpeed:.05 },
+  cosmic:  { barRadius:10, barCount:96,  icoWire:false, particleSize:.12, tunnelSpeed:.12, colorSpeed:.12 },
+  acid:    { barRadius:6,  barCount:160, icoWire:true,  particleSize:.06, tunnelSpeed:.2,  colorSpeed:.25 },
+  minimal: { barRadius:9,  barCount:64,  icoWire:true,  particleSize:.04, tunnelSpeed:.03, colorSpeed:.02 },
+};
+
+function setPreset(name, btn){
+  currentPreset = name;
+  document.querySelectorAll('#preset-row .panel-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════
+//  ENVIRONMENTS
+// ═══════════════════════════════════════════════════
+const ENVS = {
+  space:{ fog:0x000010, fogNear:30, fogFar:120, ambient:0x111133, bg:0x000010 },
+  neon: { fog:0x0a0010, fogNear:20, fogFar:90,  ambient:0x220033, bg:0x0a0010 },
+  ocean:{ fog:0x001030, fogNear:15, fogFar:80,  ambient:0x003355, bg:0x001030 },
+};
+
+function setEnv(name, btn){
+  currentEnv = name;
+  document.querySelectorAll('#env-row .panel-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  applyEnv(name);
+}
+function applyEnv(name){
+  const e = ENVS[name];
+  scene.background = new THREE.Color(e.bg);
+  scene.fog = new THREE.Fog(e.fog, e.fogNear, e.fogFar);
+  ambLight.color.set(e.ambient);
+}
+
+// ═══════════════════════════════════════════════════
+//  VR
+// ═══════════════════════════════════════════════════
+function enterVR(){
+  if(!navigator.xr){ alert('WebXR not available. Use a VR-capable browser.'); return; }
+  navigator.xr.isSessionSupported('immersive-vr').then(s=>{
+    if(s) navigator.xr.requestSession('immersive-vr').then(sess=>renderer.xr.setSession(sess));
+    else  alert('VR not supported on this device. Try the Meta Quest Browser.');
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  GYROSCOPE / DEVICE ORIENTATION
+// ═══════════════════════════════════════════════════
+let gyroEnabled = false;
+let gyroAlpha=0, gyroBeta=0, gyroGamma=0;
+const _euler = new THREE.Euler();
+const _q = new THREE.Quaternion();
+const _screenQ = new THREE.Quaternion();
+const _worldQ = new THREE.Quaternion(-Math.sqrt(.5),0,0,Math.sqrt(.5)); // screen -> world
+
+function enableGyro(){
+  // iOS 13+ requires permission
+  if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+    DeviceOrientationEvent.requestPermission().then(state=>{
+      if(state==='granted') startGyro();
+      else alert('Gyroscope permission denied.');
+    }).catch(()=>alert('Could not request gyroscope permission.'));
+  } else if('DeviceOrientationEvent' in window){
+    startGyro();
+  } else {
+    alert('Gyroscope not available on this device.');
+  }
+}
+
+function startGyro(){
+  window.addEventListener('deviceorientation', e=>{
+    gyroAlpha = e.alpha || 0; // z-axis 0-360
+    gyroBeta  = e.beta  || 0; // x-axis -180 to 180
+    gyroGamma = e.gamma || 0; // y-axis -90 to 90
+  }, true);
+  gyroEnabled = true;
+  document.getElementById('gyro-btn').classList.add('active');
+  document.getElementById('gyro-btn').textContent = '🔄 Gyro ON';
+}
+
+function applyGyro(){
+  if(!gyroEnabled || renderer.xr.isPresenting) return;
+  // Convert device orientation to quaternion (portrait mode)
+  const a = THREE.MathUtils.degToRad(gyroAlpha);
+  const b = THREE.MathUtils.degToRad(gyroBeta);
+  const g = THREE.MathUtils.degToRad(gyroGamma);
+  _euler.set(b, a, -g, 'YXZ');
+  _q.setFromEuler(_euler);
+  camera.quaternion.copy(_worldQ).multiply(_q).multiply(_screenQ);
+}
+
+// ═══════════════════════════════════════════════════
+//  SCENE OBJECTS
+// ═══════════════════════════════════════════════════
+
+// Lights
+const ambLight = new THREE.AmbientLight(0x111133,.5); scene.add(ambLight);
+const pLight1  = new THREE.PointLight(0xff00ff,3,25);  scene.add(pLight1);
+const pLight2  = new THREE.PointLight(0x00ffff,3,25);  scene.add(pLight2);
+const pLight3  = new THREE.PointLight(0xffff00,2,20);  scene.add(pLight3);
+
+// Stars
+const starGeo = new THREE.BufferGeometry();
+const starPos = new Float32Array(6000*3);
+for(let i=0;i<6000;i++){starPos[i*3]=(Math.random()-.5)*300;starPos[i*3+1]=(Math.random()-.5)*300;starPos[i*3+2]=(Math.random()-.5)*300;}
+starGeo.setAttribute('position',new THREE.BufferAttribute(starPos,3));
+const stars = new THREE.Points(starGeo,new THREE.PointsMaterial({size:.15,color:0xffffff,transparent:true,opacity:.6}));
+scene.add(stars);
+
+// Freq bars
+const BAR_MAX = 160;
+const bars=[], barGroup=new THREE.Group(); scene.add(barGroup);
+for(let i=0;i<BAR_MAX;i++){
+  const geo=new THREE.BoxGeometry(.14,1,.14);
+  const mat=new THREE.MeshStandardMaterial({color:new THREE.Color().setHSL(i/BAR_MAX,1,.5),emissive:new THREE.Color().setHSL(i/BAR_MAX,1,.3),emissiveIntensity:1});
+  const bar=new THREE.Mesh(geo,mat); bars.push(bar); barGroup.add(bar);
+}
+
+// Icosahedron
+const icoGeo = new THREE.IcosahedronGeometry(1.6,4);
+const icoMat = new THREE.MeshStandardMaterial({color:0xffffff,wireframe:true,emissive:0x8800ff,emissiveIntensity:1});
+const ico = new THREE.Mesh(icoGeo,icoMat); scene.add(ico);
+const icoOrigPos = Float32Array.from(icoGeo.attributes.position.array);
+
+// Particles
+const PCNT=3500, pGeo=new THREE.BufferGeometry();
+const pPos=new Float32Array(PCNT*3), pVel=new Float32Array(PCNT*3), pLife=new Float32Array(PCNT);
+for(let i=0;i<PCNT;i++) resetP(i,true);
+pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+const pMat=new THREE.PointsMaterial({size:.08,color:0xffffff,transparent:true,opacity:.75});
+const particles=new THREE.Points(pGeo,pMat); scene.add(particles);
+
+function resetP(i,init){
+  const th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1), r=init?Math.random()*18:1.6;
+  pPos[i*3]=r*Math.sin(ph)*Math.cos(th); pPos[i*3+1]=r*Math.sin(ph)*Math.sin(th); pPos[i*3+2]=r*Math.cos(ph);
+  const sp=.02+Math.random()*.05;
+  pVel[i*3]=(Math.random()-.5)*sp; pVel[i*3+1]=(Math.random()-.5)*sp; pVel[i*3+2]=(Math.random()-.5)*sp;
+  pLife[i]=.5+Math.random()*.5;
+}
+
+// Waveform
+const WPTS=256, wGeo=new THREE.BufferGeometry();
+const wPos=new Float32Array(WPTS*3); wGeo.setAttribute('position',new THREE.BufferAttribute(wPos,3));
+const wMat=new THREE.LineBasicMaterial({color:0x00ffff});
+const waveLine=new THREE.Line(wGeo,wMat); waveLine.position.y=-2.5; scene.add(waveLine);
+
+// Tunnel
+const tunnelRings=[];
+for(let i=0;i<22;i++){
+  const rg=new THREE.TorusGeometry(4+i*.25,.04,8,72);
+  const rm=new THREE.MeshStandardMaterial({color:new THREE.Color().setHSL(i/22,1,.5),emissive:new THREE.Color().setHSL(i/22,1,.3),emissiveIntensity:1});
+  const r=new THREE.Mesh(rg,rm); r.position.z=-i*3; r.rotation.x=Math.PI/2;
+  tunnelRings.push(r); scene.add(r);
+}
+
+// Neon grid floor (for Neon City env)
+const gridHelper = new THREE.GridHelper(60,30,0xff00ff,0xff00ff);
+gridHelper.position.y=-5; gridHelper.material.transparent=true; gridHelper.material.opacity=.25;
+scene.add(gridHelper);
+
+// Underwater bubbles
+const bubGeo=new THREE.BufferGeometry();
+const bubPos=new Float32Array(500*3);
+for(let i=0;i<500;i++){bubPos[i*3]=(Math.random()-.5)*30;bubPos[i*3+1]=(Math.random()-.5)*20;bubPos[i*3+2]=(Math.random()-.5)*30;}
+bubGeo.setAttribute('position',new THREE.BufferAttribute(bubPos,3));
+const bubbles=new THREE.Points(bubGeo,new THREE.PointsMaterial({size:.2,color:0x88ddff,transparent:true,opacity:.4}));
+scene.add(bubbles);
+
+// Beat grid rings (visual pulse on beat)
+const beatRings=[];
+for(let i=0;i<4;i++){
+  const bg=new THREE.RingGeometry(1.8+i*.4,1.9+i*.4,64);
+  const bm=new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.DoubleSide,transparent:true,opacity:0});
+  const br=new THREE.Mesh(bg,bm); br.rotation.x=-Math.PI/2; br.position.y=-1;
+  beatRings.push(br); scene.add(br);
+}
+
+// Init env
+applyEnv('space');
+
+// ═══════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════════════════════════
+const beatFlashEl = document.getElementById('beat-flash');
+let beatFlash=0, prevBassEnergy=0;
+
+renderer.setAnimationLoop(()=>{
+  t += .01;
+  const P = PRESETS[currentPreset];
+
+  // ── Audio data ──
+  let bass=0,mid=0,treble=0;
+  if(analyser && isPlaying){
+    analyser.getByteFrequencyData(freqArray);
+    analyser.getByteTimeDomainData(dataArray);
+    for(let i=0;i<10;i++) bass+=freqArray[i]; bass=bass/10/255;
+    for(let i=10;i<100;i++) mid+=freqArray[i]; mid=mid/90/255;
+    for(let i=100;i<512;i++) treble+=freqArray[i]; treble=treble/412/255;
+  } else {
+    bass=.25+.18*Math.sin(t*2); mid=.18+.12*Math.sin(t*3.7); treble=.08+.07*Math.sin(t*7);
+  }
+
+  // ── Beat detection ──
+  const isBeat = bass > .52 && bass > prevBassEnergy*1.28;
+  if(isBeat){ beatFlash=1; bpmDetector.onBeat(); }
+  prevBassEnergy = bass;
+  beatFlash *= .84;
+  beatFlashEl.style.opacity = beatFlash;
+
+  // ── Beat grid ──
+  updateBeatGrid();
+  beatRings.forEach((r,i)=>{
+    const phase = Math.max(0, beatGridPhase - i*.15);
+    r.scale.setScalar(1+phase*2);
+    r.material.opacity = phase * .6;
+    r.material.color.setHSL((t*P.colorSpeed+i*.1)%1,1,.8);
+  });
+
+  // ── Env-specific ──
+  const isNeon  = currentEnv==='neon';
+  const isOcean = currentEnv==='ocean';
+  gridHelper.visible  = isNeon;
+  bubbles.visible     = isOcean;
+  stars.visible       = currentEnv==='space';
+  if(isOcean){
+    const bp = bubGeo.attributes.position.array;
+    for(let i=0;i<500;i++){bp[i*3+1]+=.02; if(bp[i*3+1]>10) bp[i*3+1]=-10;}
+    bubGeo.attributes.position.needsUpdate=true;
+  }
+
+  // ── Freq bars ──
+  const bc = P.barCount;
+  bars.forEach((bar,i)=>{
+    const visible = i < bc;
+    bar.visible = visible;
+    if(!visible) return;
+    const angle=(i/bc)*Math.PI*2;
+    bar.position.set(Math.cos(angle)*P.barRadius,0,Math.sin(angle)*P.barRadius);
+    bar.lookAt(0,0,0);
+    const fv = analyser&&isPlaying ? freqArray[Math.floor(i*freqArray.length/bc)]/255 : .1+.05*Math.sin(t*2+i*.2);
+    bar.scale.y = THREE.MathUtils.lerp(bar.scale.y,.1+fv*6,.3);
+    const hue=(i/bc+t*P.colorSpeed)%1;
+    bar.material.color.setHSL(hue,1,.5);
+    bar.material.emissive.setHSL(hue,1,.25);
+    bar.material.emissiveIntensity=.4+fv*2;
+    bar.material.wireframe = currentPreset==='minimal';
+  });
+  barGroup.rotation.y += .002+(currentPreset==='acid'?.004:0);
+
+  // ── Icosahedron ──
+  icoMat.wireframe = P.icoWire;
+  const ip=icoGeo.attributes.position;
+  for(let i=0;i<ip.count;i++){
+    const ox=icoOrigPos[i*3],oy=icoOrigPos[i*3+1],oz=icoOrigPos[i*3+2];
+    const n=Math.sqrt(ox*ox+oy*oy+oz*oz)||1;
+    const noise=1+bass*.9*Math.sin(t*3+ox*3+oy*2)+mid*.4;
+    ip.setXYZ(i,ox/n*n*noise,oy/n*n*noise,oz/n*n*noise);
+  }
+  ip.needsUpdate=true; icoGeo.computeVertexNormals();
+  ico.rotation.x+=.005+bass*.02; ico.rotation.y+=.007+mid*.02;
+  const icoScale=1+bass*.6+beatGridPhase*.3;
+  ico.scale.setScalar(icoScale);
+  icoMat.color.setHSL((t*P.colorSpeed)%1,1,.6);
+  icoMat.emissive.setHSL((t*P.colorSpeed+.5)%1,1,.3);
+
+  // ── Particles ──
+  pMat.size = P.particleSize;
+  const burst = isBeat?.18:0;
+  for(let i=0;i<PCNT;i++){
+    pPos[i*3]+=pVel[i*3]+(Math.random()-.5)*burst;
+    pPos[i*3+1]+=pVel[i*3+1]+(Math.random()-.5)*burst;
+    pPos[i*3+2]+=pVel[i*3+2]+(Math.random()-.5)*burst;
+    pLife[i]-=.003;
+    const d=Math.sqrt(pPos[i*3]**2+pPos[i*3+1]**2+pPos[i*3+2]**2);
+    if(pLife[i]<=0||d>16) resetP(i,false);
+  }
+  pGeo.attributes.position.needsUpdate=true;
+  pMat.color.setHSL((t*P.colorSpeed+.33)%1,1,.7);
+
+  // ── Waveform ──
+  for(let i=0;i<WPTS;i++){
+    const wv = analyser&&isPlaying ? (dataArray[Math.floor(i*dataArray.length/WPTS)]/128-1)*3 : Math.sin((i/WPTS)*Math.PI*2*4+t*3)*.5;
+    const angle=(i/WPTS)*Math.PI*2;
+    wPos[i*3]=Math.cos(angle)*(5+wv); wPos[i*3+1]=wv*.5; wPos[i*3+2]=Math.sin(angle)*(5+wv);
+  }
+  wGeo.attributes.position.needsUpdate=true;
+  wMat.color.setHSL((t*P.colorSpeed+.5)%1,1,.6);
+  waveLine.visible = currentPreset!=='minimal';
+
+  // ── Tunnel ──
+  tunnelRings.forEach((r,i)=>{
+    r.position.z += P.tunnelSpeed+(bass*.3);
+    if(r.position.z>2) r.position.z=-tunnelRings.length*3+2;
+    const sc=1+bass*.5+mid*.2; r.scale.set(sc,sc,1);
+    r.material.color.setHSL((i/tunnelRings.length+t*P.colorSpeed)%1,1,.5);
+    r.material.emissive.setHSL((i/tunnelRings.length+t*P.colorSpeed)%1,1,.25);
+    r.material.emissiveIntensity=.4+bass;
+  });
+
+  // ── Lights ──
+  pLight1.position.set(Math.sin(t)*6,Math.cos(t*.7)*3,Math.cos(t)*6);
+  pLight2.position.set(Math.cos(t*1.3)*6,Math.sin(t*.9)*3,Math.sin(t*1.3)*6);
+  pLight3.position.set(Math.sin(t*2)*4,Math.cos(t*1.5)*4,Math.cos(t*2)*4);
+  pLight1.color.setHSL((t*P.colorSpeed)%1,1,.6);
+  pLight2.color.setHSL((t*P.colorSpeed+.33)%1,1,.6);
+  pLight3.color.setHSL((t*P.colorSpeed+.66)%1,1,.6);
+  pLight1.intensity=2+bass*10; pLight2.intensity=2+mid*7; pLight3.intensity=1+treble*5;
+
+  // ── Camera ──
+  if(!renderer.xr.isPresenting){
+    if(gyroEnabled){
+      applyGyro();
+    } else {
+      camera.position.y=Math.sin(t*.3)*.5;
+      camera.rotation.z=Math.sin(t*.2)*.03;
+    }
+  }
+
+  renderer.render(scene,camera);
+});
+</script>
+</body>
+</html>
