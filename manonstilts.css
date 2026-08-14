@@ -34,6 +34,18 @@ body {
 	text-decoration: none;
 	}
 	
+/* Locks background scroll while the modal is open.
+   position:fixed (not just overflow:hidden) is what stops iOS Safari
+   rubber-banding the page behind the modal. Touch events are untouched,
+   so pinch-zoom on the photo still works. */
+body.modal-open {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 .image-modal {
   display: none;
   position: fixed;

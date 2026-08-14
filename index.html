@@ -151,25 +151,44 @@ document.addEventListener("DOMContentLoaded", function () {
   const modalImg = document.getElementById("modalImg");
   const modalClose = document.getElementById("modalClose");
 
+  let savedScrollY = 0;
+
+  function openModal(href) {
+    savedScrollY = window.scrollY;
+    modalImg.src = href;
+    modal.style.display = "flex";
+    document.body.style.top = -savedScrollY + "px";
+    document.body.classList.add("modal-open");
+  }
+
+  function closeModal() {
+    modal.style.display = "none";
+    modalImg.src = "";
+    document.body.classList.remove("modal-open");
+    document.body.style.top = "";
+    window.scrollTo(0, savedScrollY);
+  }
+
   document.querySelectorAll('.justified-gallery a').forEach(anchor => {
     anchor.addEventListener('click', function (e) {
       e.preventDefault();
-      modalImg.src = this.href;
-      modal.style.display = "flex";
+      openModal(this.href);
     });
   });
 
-  modalClose.onclick = function () {
-    modal.style.display = "none";
-    modalImg.src = "";
-  };
+  modalClose.onclick = closeModal;
 
   modal.onclick = function (e) {
     if (e.target === modal) {
-      modal.style.display = "none";
-      modalImg.src = "";
+      closeModal();
     }
   };
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && modal.style.display === "flex") {
+      closeModal();
+    }
+  });
 });
 
 </script>
